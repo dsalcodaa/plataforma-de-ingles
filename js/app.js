@@ -27,12 +27,16 @@
   // ── Estado (localStorage)
   // shortcut: progresso só neste navegador; migrar para Supabase quando houver login e sincronização.
   let S = load();
+  if (S) migrate(S);
   let P = null; // sessão em andamento (lição ou revisão)
+  let R = null; // texto aberto no leitor
   let tab = 'trilha';
 
   function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* armazenamento cheio ou bloqueado */ } }
-  function fresh(name, goal) { return { profile: { name, goal }, xp: 0, days: {}, cards: {}, lessons: {}, errors: [], ach: {}, recalled: 0, fast: 0 }; }
+  function fresh(name, goal) { return migrate({ profile: { name, goal }, xp: 0, days: {}, cards: {}, lessons: {}, errors: [], ach: {}, recalled: 0, fast: 0 }); }
+  // Campos do módulo Textos (entraram depois da v1; o progresso antigo continua valendo).
+  function migrate(s) { s.texts = s.texts || []; s.words = s.words || {}; s.known = s.known || {}; s.prefs = s.prefs || { colors: true }; return s; }
   const today = () => L.dateKey(Date.now());
   function addXP(n) { S.xp += n; S.days[today()] = (S.days[today()] || 0) + n; }
 
@@ -65,6 +69,8 @@
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     lock: '<rect x="5.5" y="11" width="13" height="9" rx="2"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3"/>',
     clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2"/>',
+    book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/>',
+    back: '<path d="M15 5l-7 7 7 7"/>',
   };
   const icon = (n, cls) => h('span', { class: 'ico ' + (cls || ''), 'aria-hidden': 'true', svg: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>` });
 
@@ -114,7 +120,8 @@
   function render() {
     if (!S) return renderOnboarding();
     if (P) return renderPlayer();
-    mount(shell(tab === 'progresso' ? progressView() : tab === 'revisar' ? reviewView() : pathView()));
+    if (R) return renderReader();
+    mount(shell(tab === 'progresso' ? progressView() : tab === 'revisar' ? reviewView() : tab === 'textos' ? textsView() : pathView()));
   }
   function go(t) { tab = t; render(); }
 
@@ -143,7 +150,7 @@
   }
 
   function shell(content) {
-    const due = dueCards().length, tx = S.days[today()] || 0, goal = S.profile.goal;
+    const due = dueCards().length + dueWords().length, tx = S.days[today()] || 0, goal = S.profile.goal;
     const tabBtn = (id, label, ic, badge) => h('button', { class: 'tab' + (tab === id ? ' on' : ''), type: 'button', 'aria-current': tab === id ? 'page' : null, onclick: () => go(id) },
       icon(ic), h('span', {}, label), badge ? h('b', { class: 'badge', 'aria-label': badge + ' pendentes' }, String(badge)) : null);
     return h('div', { class: 'shell' },
@@ -152,7 +159,7 @@
           h('span', { class: 'pill', title: 'Dias seguidos' }, icon('flame', 'flame'), String(L.streak(S.days, Date.now()))),
           ring(tx, goal))),
       h('main', { class: 'content' }, content),
-      h('nav', { class: 'tabs', 'aria-label': 'Navegação' }, tabBtn('trilha', 'Trilha', 'path'), tabBtn('revisar', 'Revisar', 'repeat', due), tabBtn('progresso', 'Progresso', 'chart')));
+      h('nav', { class: 'tabs', 'aria-label': 'Navegação' }, tabBtn('trilha', 'Trilha', 'path'), tabBtn('textos', 'Textos', 'book'), tabBtn('revisar', 'Revisar', 'repeat', due), tabBtn('progresso', 'Progresso', 'chart')));
   }
 
   function ring(v, goal) {
@@ -203,7 +210,8 @@
       all.length ? h('div', { class: 'card' },
         h('h3', {}, 'Treinar pontos fracos'),
         h('p', { class: 'muted' }, 'Os exercícios em que você mais errou, fora do calendário de revisão.'),
-        h('button', { class: 'btn', type: 'button', onclick: () => startReview(true) }, 'Treinar agora')) : null);
+        h('button', { class: 'btn', type: 'button', onclick: () => startReview(true) }, 'Treinar agora')) : null,
+      wordsReviewCard());
   }
 
   function progressView() {
@@ -250,6 +258,9 @@
         tile(avg ? fmtS(avg) : '—', 'Tempo médio de acerto', 'menor = mais automático'),
         tile(retention == null ? '—' : pct(retention), 'Retenção após intervalo', retention == null ? 'aparece nas revisões dos próximos dias' : `${later.length} revisões`),
         tile(String(vocab.length), 'Palavras e blocos', 'das lições concluídas')),
+      S.texts.length ? h('div', { class: 'card' }, h('h3', {}, 'Leitura'),
+        h('p', { class: 'muted' }, (() => { const ws = Object.values(S.words), fixed = ws.filter(w => w.card.interval >= 7).length;
+          return `${S.texts.length} ${S.texts.length === 1 ? 'texto' : 'textos'} · ${ws.length} palavras marcadas como “não sei” · ${fixed} já fixadas (intervalo de 7 dias ou mais)`; })())) : null,
       series.length > 1 ? h('div', { class: 'card' }, h('h3', {}, 'Velocidade de resposta'), sparkline(series), h('p', { class: 'muted' }, 'Tempo médio de acerto por dia. A curva descendo indica automatização.')) : null,
       h('div', { class: 'card' }, h('h3', {}, 'Estruturas'),
         h('ul', { class: 'struct-list' }, st.map(s => h('li', {},
@@ -290,6 +301,7 @@
   }
 
   function grade(step, res, ms) {
+    if (step.type === 'word') return gradeWord(step, res, ms);
     if (!GRADED.has(step.type)) return;
     const id = step.id, first = !P.seen.has(id);
     P.seen.add(id);
@@ -386,8 +398,8 @@
             h('span', { lang: 'en' }, w.res.model || w.step.model || w.step.answer),
             w.res.why ? h('small', { class: 'muted' }, w.res.why) : null))),
           h('p', { class: 'muted' }, 'Esses itens voltam em 10 minutos na aba Revisar.'))
-          : h('p', { class: 'lead' }, s.mode === 'lesson' ? 'Sem erros. A primeira revisão fica para amanhã — é ela que transforma acerto em memória.' : 'Tudo recuperado. Os próximos intervalos ficam mais longos.')),
-      h('footer', { class: 'foot static' }, h('div', { class: 'foot-in' }, h('button', { class: 'btn primary', type: 'button', onclick: () => go(s.mode === 'lesson' ? 'trilha' : 'revisar') }, 'Continuar')))));
+          : h('p', { class: 'lead' }, s.mode === 'words' ? 'Todas lembradas. Os próximos intervalos ficam mais longos.' : s.mode === 'lesson' ? 'Sem erros. A primeira revisão fica para amanhã — é ela que transforma acerto em memória.' : 'Tudo recuperado. Os próximos intervalos ficam mais longos.')),
+      h('footer', { class: 'foot static' }, h('div', { class: 'foot-in' }, h('button', { class: 'btn primary', type: 'button', onclick: () => go(s.mode === 'lesson' ? 'trilha' : s.mode === 'words' && s.back ? 'textos' : 'revisar') }, 'Continuar')))));
   }
 
   // ── Exercícios. Cada um devolve { node, check?, self?, focus?, start? }.
@@ -555,8 +567,335 @@
     return { self: true, node: h('section', { class: 'ex' }, head(st, 'Converse usando o passado'), chat, opts, why) };
   };
 
+  // ── Textos: leitura analisada de artigos, frases e músicas (gramática local em js/reader.js)
+  // shortcut: tradução e definição vêm de serviços online gratuitos (MyMemory, dictionaryapi.dev), sem chave e com limite diário; sem internet só a gramática funciona.
+  const KINDS = { artigo: 'Artigo', frase: 'Frases', musica: 'Música' };
+  const POS = { noun: 'substantivo', verb: 'verbo', adjective: 'adjetivo', adverb: 'advérbio', pronoun: 'pronome', preposition: 'preposição', conjunction: 'conjunção', interjection: 'interjeição', determiner: 'determinante' };
+  const SAMPLE = [
+    "I've been walking down this empty road",
+    "Thinking 'bout the words you never told",
+    "You said you're gonna stay, but you went away",
+    "And I'm still waiting here for you today",
+    '',
+    "Don't let me go, I wanna know",
+    'If you could ever find your way back home',
+  ].join('\n');
+
+  const TR_KEY = 'encaixe:tr';
+  const TR = (() => { try { return JSON.parse(localStorage.getItem(TR_KEY)) || {}; } catch (e) { return {}; } })();
+  function trSave() {
+    const ks = Object.keys(TR);
+    if (ks.length > 1500) for (const k of ks.slice(0, ks.length - 1500)) delete TR[k];
+    try { localStorage.setItem(TR_KEY, JSON.stringify(TR)); } catch (e) { /* armazenamento cheio */ }
+  }
+  async function translate(q) {
+    const k = 't:' + q.toLowerCase();
+    if (TR[k]) return TR[k];
+    const r = await fetch('https://api.mymemory.translated.net/get?langpair=en|pt-br&q=' + encodeURIComponent(q.slice(0, 480)));
+    if (!r.ok) throw new Error('falha');
+    const j = await r.json();
+    const end = /[.!?]$/.test(q.trim()) ? (x => x) : (x => x.replace(/[.!?]+$/, '')); // palavra solta: sem ponto final
+    const main = end(((j.responseData && j.responseData.translatedText) || '').trim());
+    if (String(j.responseStatus) !== '200' || !main || /MYMEMORY WARNING/i.test(main)) throw new Error('limite');
+    const seen = new Set([main.toLowerCase(), q.toLowerCase()]), alt = [];
+    for (const m of j.matches || []) {
+      const x = end((m.translation || '').trim());
+      if (x && x.length < 60 && !seen.has(x.toLowerCase())) { seen.add(x.toLowerCase()); alt.push(x); }
+    }
+    TR[k] = { pt: main, alt: alt.slice(0, 3) };
+    trSave();
+    return TR[k];
+  }
+  async function define(word) {
+    const k = 'd:' + word.toLowerCase();
+    if (k in TR) return TR[k];
+    const r = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word));
+    if (r.status === 404) { TR[k] = null; trSave(); return null; }
+    if (!r.ok) throw new Error('falha');
+    const j = (await r.json())[0] || {};
+    const phon = j.phonetic || ((j.phonetics || []).find(p => p.text) || {}).text || '';
+    const defs = (j.meanings || []).slice(0, 2).map(m => ({ pos: m.partOfSpeech, def: (m.definitions[0] || {}).definition, ex: (m.definitions[0] || {}).example })).filter(d => d.def);
+    TR[k] = { phon, defs };
+    trSave();
+    return TR[k];
+  }
+
+  // Palavras marcadas como "não sei": viram cartões da revisão espaçada.
+  function dueWords() { const now = Date.now(); return Object.values(S.words).filter(w => w.card.due <= now); }
+  const wordMeaning = w => [w.note, w.pt].filter(Boolean).join(' · ') || 'sem tradução salva';
+  function markUnknown(t, x, sent) {
+    if (!S.words[x.key]) {
+      const card = L.newCard('w:' + x.key);
+      card.due = Date.now() + 10 * 60e3; // primeira revisão em 10 minutos
+      S.words[x.key] = { key: x.key, word: t.phrasal || t.text, lemma: x.lookup, cls: x.cls, pt: '', alt: [], note: '', ctx: sent.text, textId: R && R.id, t: Date.now(), card };
+    }
+    delete S.known[x.key];
+    save();
+  }
+  async function fillMeaning(w) {
+    if (w.pt) return;
+    try { const r = await translate(w.lemma); w.pt = r.pt; w.alt = r.alt; save(); } catch (e) { /* sem internet: tenta de novo na próxima vez */ }
+  }
+
+  let addOpen = false, delArm = null;
+  function textsView() {
+    const ws = Object.values(S.words), dw = dueWords().length;
+    return h('div', {},
+      h('h1', { class: 'hello' }, 'Textos'),
+      h('p', { class: 'lead' }, 'Cole um artigo, frases soltas ou a letra de uma música. Toque em qualquer palavra para ver o que ela faz na frase, o tempo verbal e o significado.'),
+      addOpen ? addForm() : h('button', { class: 'card cta', type: 'button', onclick: () => { addOpen = true; render(); } },
+        icon('book'), h('div', {}, h('strong', {}, 'Adicionar texto'), h('span', {}, 'Artigo, frases ou música'))),
+      !S.texts.length && !addOpen ? h('button', { class: 'link', type: 'button', onclick: () => saveText('Exemplo: letra curta', 'musica', SAMPLE) }, 'Experimentar com um texto de exemplo') : null,
+      S.texts.length ? h('section', { class: 'level' }, h('h2', { class: 'level-h' }, 'Seus textos'),
+        h('ul', { class: 'text-list' }, S.texts.slice().sort((a, b) => b.t - a.t).map(tx => {
+          const unk = ws.filter(w => w.textId === tx.id).length;
+          return h('li', {},
+            h('button', { class: 'node open', type: 'button', onclick: () => openText(tx.id) },
+              h('span', { class: 'node-n' }, icon('book')),
+              h('span', { class: 'node-t' }, h('strong', {}, tx.title), h('span', {}, `${KINDS[tx.kind]} · ${tx.words} palavras` + (unk ? ` · ${unk} para aprender` : ''))),
+              h('span', { class: 'chip go' }, 'Ler')),
+            h('button', { class: 'link del', type: 'button', onclick: () => {
+              if (delArm === tx.id) { S.texts = S.texts.filter(x => x.id !== tx.id); delArm = null; save(); } else delArm = tx.id;
+              render();
+            } }, delArm === tx.id ? 'Confirmar exclusão (as palavras marcadas continuam na revisão)' : 'Excluir'));
+        }))) : null,
+      ws.length ? h('div', { class: 'card' },
+        h('h3', {}, 'Minhas palavras'),
+        h('p', { class: 'muted' }, `${ws.length} marcadas como “não sei”. Elas entram na revisão espaçada.`),
+        h('div', { class: 'vocab' }, ws.sort((a, b) => b.t - a.t).slice(0, 40).map(w => h('span', { class: 'v', title: wordMeaning(w) }, h('span', { lang: 'en' }, w.word), w.pt ? h('small', { class: 'muted' }, ' · ' + w.pt) : null))),
+        dw ? h('button', { class: 'btn primary', type: 'button', onclick: () => startWords(true) }, `Revisar ${dw} ${dw === 1 ? 'palavra' : 'palavras'}`)
+          : h('p', { class: 'muted' }, 'Nenhuma palavra pendente agora.')) : null);
+  }
+
+  function addForm() {
+    let kind = 'artigo';
+    const title = h('input', { class: 'input', placeholder: 'Opcional', maxlength: 80, id: 'tx-title' });
+    const body = h('textarea', { class: 'input', rows: 9, lang: 'en', spellcheck: 'false', id: 'tx-body', maxlength: 20000, placeholder: 'Cole aqui o texto em inglês…' });
+    const kinds = h('div', { class: 'goal-grid', role: 'radiogroup', 'aria-label': 'Tipo de texto' }, Object.entries(KINDS).map(([k, l]) => h('button', {
+      class: 'goal' + (k === kind ? ' on' : ''), type: 'button', role: 'radio', 'aria-checked': String(k === kind),
+      onclick: e => { kind = k; for (const b of kinds.children) { const on = b === e.currentTarget; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); } },
+    }, h('strong', {}, l), h('span', {}, k === 'musica' ? 'mantém as linhas' : k === 'frase' ? 'uma por linha' : 'em parágrafos'))));
+    const ok = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: () => saveText(title.value.trim(), kind, body.value) }, 'Analisar texto');
+    body.addEventListener('input', () => { ok.disabled = !body.value.trim(); });
+    setTimeout(() => body.focus(), 0);
+    return h('div', { class: 'card add-form' }, h('h3', {}, 'Novo texto'),
+      h('p', { class: 'label' }, 'Tipo'), kinds,
+      h('label', { class: 'label', for: 'tx-title' }, 'Título'), title,
+      h('label', { class: 'label', for: 'tx-body' }, 'Texto em inglês'), body,
+      h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => { addOpen = false; render(); } }, 'Cancelar'), ok));
+  }
+  function saveText(title, kind, body) {
+    body = body.trim();
+    if (!body) return;
+    const a = Reader.analyze(body, kind), id = 'tx' + Date.now().toString(36);
+    S.texts.push({ id, title: title || body.split('\n')[0].slice(0, 50), kind, body, words: a.words, t: Date.now() });
+    save();
+    addOpen = false;
+    openText(id, a);
+  }
+  function openText(id, a) {
+    const tx = S.texts.find(x => x.id === id);
+    if (!tx) return;
+    R = { id, tx, a: a || Reader.analyze(tx.body, tx.kind), sel: null };
+    render();
+  }
+
+  function renderReader() {
+    const { tx, a } = R;
+    const body = h('main', { class: 'r-body' + (S.prefs.colors ? ' colors' : ''), lang: 'en' });
+    for (const para of a.paras) {
+      const pe = h('div', { class: 'r-para' });
+      for (const line of para) {
+        const le = h(tx.kind === 'artigo' ? 'p' : 'div', { class: 'r-line' });
+        for (const sent of line) for (const t of sent.tokens) {
+          if (t.pre) le.append(t.pre);
+          const key = Reader.keyOf(t);
+          const b = h('button', { class: 'tk' + (t.role ? ' r-' + t.role : '') + (S.words[key] ? ' unk' : ''), type: 'button', 'data-key': key, onclick: () => openSheet(sent, t, b) }, t.text);
+          le.append(b);
+          if (t.post) le.append(t.post);
+        }
+        pe.append(le);
+      }
+      body.append(pe);
+    }
+    const legend = h('div', { class: 'legend', hidden: !S.prefs.colors, 'aria-hidden': 'true' },
+      Object.entries(C.roles).map(([r, l]) => h('span', { class: 'r-' + r }, l)), h('span', { class: 'unk-l' }, 'não sei'));
+    const colorsBtn = h('button', { class: 'chip toggle' + (S.prefs.colors ? ' on' : ''), type: 'button', 'aria-pressed': String(!!S.prefs.colors), title: 'Colorir a função de cada palavra', onclick: () => {
+      S.prefs.colors = !S.prefs.colors; save();
+      body.classList.toggle('colors', S.prefs.colors); colorsBtn.classList.toggle('on', S.prefs.colors);
+      colorsBtn.setAttribute('aria-pressed', String(S.prefs.colors)); legend.hidden = !S.prefs.colors;
+    } }, 'Cores');
+    const listen = h('button', { class: 'say', type: 'button', 'aria-label': 'Ouvir o texto todo', title: 'Ouvir o texto todo (toque de novo para parar)', onclick: () => {
+      if (!('speechSynthesis' in window)) return;
+      if (speechSynthesis.speaking) return speechSynthesis.cancel();
+      for (const p of a.paras) for (const l of p) for (const s of l) speak(s.text, true);
+    } }, icon('speaker'));
+    R.body = body;
+    R.sheet = h('aside', { class: 'sheet', role: 'dialog', 'aria-label': 'Explicação da palavra', hidden: true });
+    mount(h('div', { class: 'reader' },
+      h('header', { class: 'r-top' },
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Voltar para os textos', onclick: () => { R = null; if ('speechSynthesis' in window) speechSynthesis.cancel(); go('textos'); } }, icon('back')),
+        h('h1', {}, tx.title), listen, colorsBtn),
+      h('div', { class: 'r-intro' }, legend,
+        h('p', { class: 'muted' }, 'Toque numa palavra para ver a explicação. A análise é automática e pode errar em gírias e frases muito longas.')),
+      body, R.sheet));
+  }
+
+  function openSheet(sent, t, b) {
+    if (R.selBtn) R.selBtn.classList.remove('sel');
+    R.sel = { sent, t }; R.selBtn = b;
+    b.classList.add('sel');
+    drawSheet();
+    R.sheet.hidden = false;
+    R.body.classList.add('open');
+    // mantém a palavra tocada visível acima do painel
+    requestAnimationFrame(() => {
+      const r = b.getBoundingClientRect(), top = R.sheet.getBoundingClientRect().top;
+      if (r.bottom > top - 12 || r.top < 70) window.scrollBy({ top: r.top - Math.max(80, top / 2 - r.height / 2), behavior: 'smooth' });
+    });
+  }
+  function closeSheet() {
+    if (!R) return;
+    R.sel = null;
+    if (R.selBtn) R.selBtn.classList.remove('sel');
+    R.sheet.hidden = true;
+    R.body.classList.remove('open');
+  }
+  function refreshKey(key) {
+    for (const b of R.body.querySelectorAll('.tk')) if (b.dataset.key === key) b.classList.toggle('unk', !!S.words[key]);
+  }
+
+  function drawSheet() {
+    const { sent, t } = R.sel, x = Reader.explainWord(t, sent), e = Reader.explainSentence(sent);
+    const w = S.words[x.key], known = S.known[x.key];
+    const meaning = h('div', { class: 'meaning', 'aria-live': 'polite' });
+    function showMeaning() {
+      meaning.replaceChildren(h('p', { class: 'muted' }, 'Buscando o significado…'));
+      Promise.allSettled([translate(x.lookup), define(x.lookup)]).then(([tr, df]) => {
+        if (!R || !R.sel || R.sel.t !== t) return;
+        const kids = [];
+        if (tr.status === 'fulfilled') {
+          kids.push(h('p', { class: 'pt-main' }, tr.value.pt), tr.value.alt.length ? h('p', { class: 'muted' }, 'Também: ' + tr.value.alt.join(', ')) : null);
+          if (w && !w.pt) { w.pt = tr.value.pt; w.alt = tr.value.alt; save(); }
+        } else kids.push(h('p', { class: 'muted' }, navigator.onLine === false
+          ? 'Sem internet: a tradução aparece quando você estiver online. A explicação gramatical abaixo funciona sem internet.'
+          : 'Não foi possível buscar a tradução agora. O serviço gratuito pode ter atingido o limite do dia.'));
+        if (df.status === 'fulfilled' && df.value) {
+          if (df.value.phon) kids.push(h('p', { class: 'muted' }, 'Pronúncia: ', h('span', { lang: 'en' }, df.value.phon)));
+          for (const d of df.value.defs) kids.push(h('p', { class: 'def', lang: 'en' }, h('small', { lang: 'pt-BR' }, (POS[d.pos] || d.pos) + ': '), d.def, d.ex ? h('em', {}, ' — ' + d.ex) : null));
+        }
+        if (w) {
+          const note = h('input', { class: 'input', id: 'w-note', value: w.note || '', maxlength: 120, placeholder: 'Ex.: sentido nesta música' });
+          note.addEventListener('change', () => { w.note = note.value.trim(); save(); });
+          kids.push(h('label', { class: 'label', for: 'w-note' }, 'Seu significado (opcional)'), note);
+        }
+        meaning.replaceChildren(...kids.filter(Boolean));
+      });
+    }
+    if (w) showMeaning();
+    else meaning.replaceChildren(h('button', { class: 'link', type: 'button', onclick: showMeaning }, 'Ver o significado'));
+
+    const actions = w
+      ? h('div', { class: 'row' }, h('span', { class: 'chip s-aprendendo' }, 'Na sua revisão'),
+          h('button', { class: 'link', type: 'button', onclick: () => { delete S.words[x.key]; S.known[x.key] = 1; save(); refreshKey(x.key); drawSheet(); } }, 'Já aprendi: tirar da revisão'))
+      : h('div', { class: 'row' },
+          h('button', { class: 'btn primary', type: 'button', onclick: () => { markUnknown(t, x, sent); refreshKey(x.key); drawSheet(); } }, 'Não sei'),
+          known ? h('span', { class: 'chip s-dominada' }, 'Você marcou que sabe')
+            : h('button', { class: 'btn', type: 'button', onclick: () => { S.known[x.key] = 1; save(); drawSheet(); } }, 'Já sei'));
+
+    const map = h('div', { class: 'sent-map', lang: 'en' },
+      sent.tokens.map(k => h('span', { class: (k.role ? 'w r-' + k.role : 'plain') + (k === t ? ' cur' : '') }, k.text)), sayBtn(sent.text));
+    const trS = h('div', { class: 'sent-tr', 'aria-live': 'polite' });
+    trS.append(h('button', { class: 'link', type: 'button', onclick: () => {
+      trS.replaceChildren(h('p', { class: 'muted' }, 'Traduzindo…'));
+      translate(sent.text).then(r => trS.replaceChildren(h('p', { class: 'pt' }, r.pt)), () => trS.replaceChildren(h('p', { class: 'muted' }, 'Tradução indisponível agora.')));
+    } }, 'Traduzir a frase'));
+
+    R.sheet.replaceChildren(
+      h('div', { class: 'sh-head' },
+        h('span', { class: 'sh-word', lang: 'en' }, t.phrasal || t.text), sayBtn(t.phrasal || t.text),
+        h('button', { class: 'icon-btn sh-close', type: 'button', 'aria-label': 'Fechar', onclick: closeSheet }, icon('close'))),
+      h('div', { class: 'sh-tags' },
+        h('span', { class: 'chip' }, x.cls),
+        t.role ? h('span', { class: 'chip role r-' + t.role }, C.roles[t.role]) : null,
+        x.lemma && x.lemma !== t.normal && !t.contr && x.cls !== 'Inglês informal' ? h('span', { class: 'muted' }, 'forma base: ', h('b', { lang: 'en' }, x.lemma)) : null),
+      actions, meaning,
+      h('div', { class: 'sh-sec' }, h('p', { class: 'kicker' }, 'Nesta frase'),
+        h('ul', { class: 'sh-lines' }, x.lines.map(l => h('li', {}, l))),
+        x.forms.length ? h('div', { class: 'forms', lang: 'en' }, x.forms.map(([k, v]) => h('div', {}, h('small', { lang: 'pt-BR' }, k), v))) : null),
+      h('div', { class: 'sh-sec' }, h('p', { class: 'kicker' }, 'A frase · ' + e.kind), map, trS,
+        e.tenses.map(T => h('div', { class: 'tense' }, h('strong', {}, T.name), h('code', {}, T.formula), h('p', {}, T.use),
+          h('small', { class: 'muted' }, 'Na frase: ', h('span', { lang: 'en' }, T.chunk)))),
+        e.notes.length ? h('ul', { class: 'sh-lines' }, e.notes.map(n => h('li', {}, n))) : null));
+    R.sheet.scrollTop = 0;
+  }
+
+  function wordsReviewCard() {
+    const ws = Object.values(S.words);
+    if (!ws.length) return null;
+    const d = dueWords().length;
+    return h('div', { class: 'card' }, h('h3', {}, 'Palavras dos seus textos'),
+      h('p', { class: 'muted' }, d ? `${d} de ${ws.length} prontas para revisar.` : `${ws.length} na lista. Nenhuma pendente agora.`),
+      d ? h('button', { class: 'btn primary', type: 'button', onclick: () => startWords(false) }, 'Revisar palavras') : null);
+  }
+  function startWords(back) {
+    const steps = dueWords().sort((a, b) => a.card.due - b.card.due).slice(0, 15).map(w => ({ type: 'word', id: 'w:' + w.key, key: w.key, stage: 2 }));
+    if (!steps.length) return;
+    P = newSession('words', 'Palavras dos seus textos', shuffle(steps));
+    P.back = back;
+    render();
+  }
+  function gradeWord(step, res, ms) {
+    const w = S.words[step.key];
+    if (!w) return;
+    const first = !P.seen.has(step.id), before = w.card.interval;
+    P.seen.add(step.id);
+    w.card = L.schedule(w.card, res.ok, ms, Date.now());
+    if (res.ok) { const xp = before >= 1 ? 8 : 5; addXP(xp); P.xp += xp; P.ms.push(ms); }
+    else {
+      P.wrong.push({ step, res });
+      if (!P.retried.has(step.id)) { P.retried.add(step.id); P.queue.push(step); }
+    }
+    if (first) { P.graded++; if (res.ok) P.okFirst++; }
+    save();
+  }
+
+  // Cartão de palavra: você tenta lembrar, revela e diz se lembrou.
+  EX.word = (st, ctx) => {
+    const w = S.words[st.key];
+    if (!w) return { node: h('section', { class: 'ex' }, h('p', { class: 'muted' }, 'Esta palavra saiu da sua lista.')) };
+    const tx = S.texts.find(x => x.id === w.textId);
+    const parts = w.ctx.split(new RegExp('(' + w.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'i'));
+    const ctxLine = h('p', { class: 'ctx-line', lang: 'en' }, parts.map((p, i) => i % 2 ? h('mark', {}, p) : p), sayBtn(w.ctx));
+    const reveal = h('div', { class: 'meaning', hidden: true });
+    const fill = () => reveal.replaceChildren(...[
+      h('p', { class: 'pt-main' }, w.pt || 'Tradução ainda não carregada (precisa de internet).'),
+      w.alt && w.alt.length ? h('p', { class: 'muted' }, 'Também: ' + w.alt.join(', ')) : null,
+      w.note ? h('p', {}, 'Sua anotação: ' + w.note) : null,
+      w.lemma && w.lemma !== w.word.toLowerCase() ? h('p', { class: 'muted' }, 'Forma base: ', h('span', { lang: 'en' }, w.lemma)) : null].filter(Boolean));
+    const no = h('button', { class: 'btn', type: 'button' }, 'Não lembrei');
+    const yes = h('button', { class: 'btn primary', type: 'button' }, 'Lembrei');
+    const gradeRow = h('div', { class: 'row', hidden: true }, no, yes);
+    const show = h('button', { class: 'btn primary', type: 'button', onclick: () => {
+      fill(); reveal.hidden = false; show.hidden = true; gradeRow.hidden = false; yes.focus(); speak(w.word);
+      if (!w.pt) fillMeaning(w).then(fill);
+    } }, 'Mostrar significado');
+    const finish = ok => { no.disabled = yes.disabled = true; ctx.done({ ok, model: w.word, why: ok ? '' : 'Significa: ' + wordMeaning(w) }); };
+    no.onclick = () => finish(false);
+    yes.onclick = () => finish(true);
+    return {
+      self: true, focus: show,
+      node: h('section', { class: 'ex' },
+        h('p', { class: 'kicker' }, h('span', { class: 'stage st-2' }, 'Recuperar'), tx ? ' · ' + tx.title : ''),
+        h('p', { class: 'q', lang: 'en' }, w.word, sayBtn(w.word)),
+        h('h2', {}, 'Você lembra o que significa?'),
+        ctxLine, reveal, show, gradeRow),
+    };
+  };
+
   // Enter confirma ou continua (exceto quando o foco está num botão, que já reage ao Enter).
   document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && R && R.sel) { closeSheet(); return; }
     if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
     if (e.target.tagName === 'BUTTON' || e.target.tagName === 'SUMMARY') return;
     const b = document.querySelector('.foot .btn.primary:not([disabled]):not([hidden])');
