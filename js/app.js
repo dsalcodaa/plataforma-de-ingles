@@ -104,7 +104,8 @@
 
   const ACH = [
     { id: 'first', name: 'Primeira estrutura', desc: 'Concluiu a primeira lição.', test: () => Object.keys(S.lessons).length >= 1 },
-    { id: 'module', name: 'Módulo completo', desc: 'Concluiu o módulo Simple Past.', test: () => LESSONS.filter(l => l.module.id === 'simple-past').every(l => S.lessons[l.id]) },
+    { id: 'module', name: 'Módulo completo', desc: 'Concluiu todas as lições de um módulo.', test: () => C.levels.some(lv => lv.modules.some(m => m.lessons.every(l => S.lessons[l.id]))) },
+    { id: 'level', name: 'Nível completo', desc: 'Concluiu todas as lições de um nível.', test: () => C.levels.some(lv => lv.modules.every(m => m.lessons.every(l => S.lessons[l.id]))) },
     { id: 'streak3', name: 'Ritmo', desc: '3 dias seguidos de treino.', test: () => L.streak(S.days, Date.now()) >= 3 },
     { id: 'recall10', name: 'Memória de longo prazo', desc: '10 acertos em revisões após 1 dia ou mais.', test: () => S.recalled >= 10 },
     { id: 'fast10', name: 'Resposta natural', desc: '10 respostas corretas em menos de 6 s no estágio Automatizar.', test: () => S.fast >= 10 },
@@ -168,32 +169,36 @@
       svg: `<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="${r}" class="ring-bg"/><circle cx="18" cy="18" r="${r}" class="ring-fg" stroke-dasharray="${c * f} ${c}"/></svg><b>${v}</b>` });
   }
 
+  // Próxima lição na ordem recomendada da trilha.
+  const nextLesson = () => LESSONS.find(l => !S.lessons[l.id]);
+
   function pathView() {
-    const due = dueCards().length;
+    const due = dueCards().length, nx = nextLesson();
     const stats = Object.fromEntries(structureStats().map(s => [s.id, s]));
+    const done = LESSONS.filter(l => S.lessons[l.id]).length;
     return h('div', {},
       h('h1', { class: 'hello' }, `Olá, ${S.profile.name}.`),
+      h('p', { class: 'muted' }, `${done} de ${LESSONS.length} lições concluídas. A ordem é a recomendada, mas você pode abrir qualquer módulo.`),
       due ? h('button', { class: 'card cta', type: 'button', onclick: () => startReview(false) },
         icon('repeat'), h('div', {}, h('strong', {}, `${due} ${due === 1 ? 'item' : 'itens'} para revisar`), h('span', {}, 'Revisar agora fixa o que você aprendeu.'))) : null,
-      C.levels.map(lv => lv.modules
-        ? h('section', { class: 'level' },
-            h('h2', { class: 'level-h' }, h('span', { class: 'cefr' }, lv.id), lv.title),
-            lv.modules.filter(m => m.lessons).map(m => h('div', { class: 'module' },
-              h('div', { class: 'module-h' }, h('h3', {}, m.title), h('span', {}, m.subtitle)),
-              h('ol', { class: 'nodes' }, m.lessons.map((les, i) => {
-                const st = lessonState(les), ms = stats[les.structure];
-                return h('li', {}, h('button', {
-                  class: 'node ' + st, type: 'button', disabled: st === 'locked',
-                  onclick: () => startLesson(les),
-                }, h('span', { class: 'node-n' }, st === 'done' ? icon('check') : st === 'locked' ? icon('lock') : String(i + 1)),
-                  h('span', { class: 'node-t' }, h('strong', {}, les.title), h('span', {}, les.subtitle)),
-                  st === 'done' ? h('span', { class: 'chip s-' + ms.status }, STATUS[ms.status]) : st === 'open' ? h('span', { class: 'chip go' }, 'Começar') : null));
-              })))),
-            h('div', { class: 'soon' }, h('p', { class: 'label' }, 'Próximos módulos'),
-              h('ul', { class: 'soon-list' }, lv.modules.filter(m => m.soon).map(m => h('li', {}, m.title)))))
-        : h('details', { class: 'level locked-level' },
-            h('summary', {}, h('span', { class: 'cefr' }, lv.id), lv.title, h('span', { class: 'muted' }, 'em breve')),
-            h('ul', { class: 'soon-list' }, lv.topics.map(t => h('li', {}, t))))));
+      nx ? h('button', { class: 'card cta next', type: 'button', onclick: () => startLesson(nx) },
+        icon('path'), h('div', {}, h('strong', {}, 'Continuar: ' + nx.title), h('span', {}, `${nx.level} · ${nx.module.title} · ${nx.subtitle}`))) : null,
+      C.levels.map(lv => {
+        const ls = lv.modules.flatMap(m => m.lessons), n = ls.filter(l => S.lessons[l.id]).length;
+        return h('details', { class: 'level', open: nx ? nx.level === lv.id : lv === C.levels[0] },
+          h('summary', { class: 'level-h' }, h('span', { class: 'cefr' }, lv.id), h('span', { class: 'level-t' }, lv.title), h('span', { class: 'muted level-n' }, `${n}/${ls.length}`)),
+          lv.modules.map(m => h('div', { class: 'module' },
+            h('div', { class: 'module-h' }, h('h3', {}, m.title), h('span', {}, m.subtitle)),
+            h('ol', { class: 'nodes' }, m.lessons.map((les, i) => {
+              const st = lessonState(les), ms = stats[les.structure];
+              return h('li', {}, h('button', {
+                class: 'node ' + st, type: 'button', disabled: st === 'locked',
+                onclick: () => startLesson(les),
+              }, h('span', { class: 'node-n' }, st === 'done' ? icon('check') : st === 'locked' ? icon('lock') : String(i + 1)),
+                h('span', { class: 'node-t' }, h('strong', {}, les.title), h('span', {}, les.subtitle)),
+                st === 'done' ? h('span', { class: 'chip s-' + ms.status }, STATUS[ms.status]) : st === 'open' && les === nx ? h('span', { class: 'chip go' }, 'Começar') : null));
+            })))));
+      }));
   }
 
   function reviewView() {
@@ -222,7 +227,8 @@
     const avg = okMs.length ? okMs.reduce((a, b) => a + b, 0) / okMs.length : 0;
     const later = hist.filter(x => x.iv >= 1);
     const retention = later.length ? later.filter(x => x.ok).length / later.length : null;
-    const real = st.length ? Math.round(st.reduce((a, s) => a + s.score, 0) / st.length) : 0;
+    const practiced = st.filter(s => s.attempts); // média só do que já foi estudado; o avanço total aparece por nível
+    const real = practiced.length ? Math.round(practiced.reduce((a, s) => a + s.score, 0) / practiced.length) : 0;
     const vocab = [...new Set(LESSONS.filter(l => S.lessons[l.id]).flatMap(l => l.vocab || []))];
 
     // tempo médio de acerto por dia
@@ -262,8 +268,9 @@
         h('p', { class: 'muted' }, (() => { const ws = Object.values(S.words), fixed = ws.filter(w => w.card.interval >= 7).length;
           return `${S.texts.length} ${S.texts.length === 1 ? 'texto' : 'textos'} · ${ws.length} palavras marcadas como “não sei” · ${fixed} já fixadas (intervalo de 7 dias ou mais)`; })())) : null,
       series.length > 1 ? h('div', { class: 'card' }, h('h3', {}, 'Velocidade de resposta'), sparkline(series), h('p', { class: 'muted' }, 'Tempo médio de acerto por dia. A curva descendo indica automatização.')) : null,
-      h('div', { class: 'card' }, h('h3', {}, 'Estruturas'),
-        h('ul', { class: 'struct-list' }, st.map(s => h('li', {},
+      h('div', { class: 'card' }, h('h3', {}, 'Estruturas praticadas'),
+        !st.some(s => s.attempts) ? h('p', { class: 'muted' }, 'Conclua uma lição para ver o domínio de cada estrutura.') : null,
+        h('ul', { class: 'struct-list' }, st.filter(s => s.attempts).map(s => h('li', {},
           h('div', { class: 'struct-h' }, h('strong', {}, s.name), h('span', { class: 'chip s-' + s.status }, STATUS[s.status])),
           h('div', { class: 'bar' }, h('i', { style: `width:${s.score}%` })),
           h('small', { class: 'muted' }, s.attempts ? `${pct(s.acc)} recente · ${s.types}/3 tipos de exercício · ${s.contexts}/2 contextos · ${s.retained ? 'retida após intervalo' : 'ainda sem revisão espaçada'}` : 'Ainda não praticada'))))),
@@ -406,6 +413,7 @@
   function head(st, title) {
     return h('div', { class: 'ex-head' },
       h('p', { class: 'kicker' }, h('span', { class: 'stage st-' + st.stage }, STAGES[st.stage]), st.context ? ' · ' + C.contexts[st.context] : ''),
+      st.passage ? h('blockquote', { class: 'passage', lang: 'en' }, st.passage, sayBtn(st.passage)) : null,
       st.q ? h('p', { class: 'q', lang: 'en' }, st.q, sayBtn(st.q)) : null,
       h('h2', {}, title || st.prompt));
   }
@@ -564,7 +572,7 @@
       } }, o)));
     }
     run();
-    return { self: true, node: h('section', { class: 'ex' }, head(st, 'Converse usando o passado'), chat, opts, why) };
+    return { self: true, node: h('section', { class: 'ex' }, head(st, st.title || 'Converse'), chat, opts, why) };
   };
 
   // ── Textos: leitura analisada de artigos, frases e músicas (gramática local em js/reader.js)

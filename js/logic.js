@@ -13,11 +13,20 @@
     [/\bweren'?t\b/g, 'were not'],
     [/\bcan'?t\b/g, 'cannot'],
     [/\bi'm\b/g, 'i am'],
+    [/\bwon'?t\b/g, 'will not'],
+    [/\bshan't\b/g, 'shall not'],
+    [/\b(is|are|has|have|had|should|could|would|must|need)n'?t\b/g, '$1 not'],
+    [/\b(you|we|they|who|what)'re\b/g, '$1 are'],
+    [/\b(i|you|we|they|who|could|should|would|might|must)'ve\b/g, '$1 have'],
+    [/\b(i|you|he|she|it|we|they|that|there|who)'ll\b/g, '$1 will'],
+    [/\b(he|she|it|that|there|what|where|who|here|how)'s\b/g, '$1 is'],
+    [/\blet's\b/g, 'let us'],
   ];
 
   // Minúsculas, contrações expandidas, sem pontuação: "I didn't go." -> "i did not go"
   function normalize(s) {
-    let t = String(s == null ? '' : s).toLowerCase().replace(/[’‘`´]/g, "'");
+    // sem acentos: respostas em português (leitura) comparam "preços" = "precos"
+    let t = String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’‘`´]/g, "'");
     for (const [re, rep] of CONTRACTIONS) t = t.replace(re, rep);
     return t
       .replace(/\bcan not\b/g, 'cannot')

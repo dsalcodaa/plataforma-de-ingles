@@ -1,5 +1,6 @@
 // Banco de conteúdo pedagógico. A aplicação só lê estes dados: novas lições, níveis ou idiomas
-// entram aqui sem mudar o código.
+// entram aqui sem mudar o código. Este arquivo tem a base e os construtores; cada nível fica em js/content/<nível>.js
+// e é registrado na ordem em que os scripts são carregados (ver index.html).
 // Convenção: em options, a resposta correta é SEMPRE a primeira (a tela embaralha).
 // patterns/traps são regex aplicadas à resposta normalizada (minúsculas, sem pontuação, "didn't" -> "did not").
 window.CONTENT = {
@@ -10,6 +11,7 @@ window.CONTENT = {
   contexts: {
     rotina: 'Rotina', trabalho: 'Trabalho', estudos: 'Estudos', viagem: 'Viagem',
     restaurante: 'Restaurante', compras: 'Compras', familia: 'Família', amigos: 'Amigos',
+    saude: 'Saúde', tecnologia: 'Tecnologia', noticias: 'Notícias', ciencia: 'Ciência', cidade: 'Cidade',
   },
 
   structures: {
@@ -18,11 +20,55 @@ window.CONTENT = {
     'sp-neg-q': { name: 'Simple Past — negativa e pergunta', level: 'A1' },
   },
 
-  levels: [
-    {
-      id: 'A1', title: 'Fundamentos',
-      modules: [
-        {
+  levels: [],
+};
+
+// ── Construtores compactos usados pelos arquivos de nível (js/content/*.js).
+// Frase com funções: "I/s | am/v | a student/c | today./t"  (s=quem, v=ação, a=auxiliar, c=complemento, t=quando)
+// Armadilhas: [[regex, explicação], ...] aplicadas à resposta normalizada.
+window.CX = (function () {
+  const C = window.CONTENT;
+  const ROLE = { s: 'subject', v: 'verb', a: 'aux', c: 'comp', t: 'time' };
+  const P = str => str.split(' | ').map(x => { const i = x.lastIndexOf('/'); return [x.slice(0, i), ROLE[x.slice(i + 1)]]; });
+  const T = list => (list || []).map(([pattern, why]) => ({ pattern, why }));
+  const pats = p => [].concat(p || []);
+  return {
+    P,
+    intro: (situation, title, text, patterns, tips) => ({
+      type: 'intro', situation, title, text, tips,
+      patterns: [].concat(patterns || []).map(p => typeof p === 'string' ? { parts: P(p) } : { label: p[0], parts: P(p[1]) }),
+    }),
+    demo: (...items) => ({ type: 'demo', items: items.map(([context, parts, pt]) => ({ context, parts: P(parts), pt })) }),
+    build: (context, q, prompt, pt, steps) => ({
+      type: 'build', context, q, prompt, pt,
+      steps: steps.map(([ask, r, options, why]) => ({ ask, role: ROLE[r], options, why: why || {} })),
+    }),
+    choose: (context, prompt, options, why, o) => Object.assign({ type: 'choose', context, prompt, options, why: why || {} }, o),
+    // Leitura: um trecho em inglês e uma pergunta de múltipla escolha sobre ele.
+    read: (context, passage, prompt, options, why, o) => Object.assign({ type: 'choose', context, passage, prompt, options, why: why || {}, stage: 2 }, o),
+    order: (context, prompt, sentence, extra, traps, o) => Object.assign({ type: 'order', context, stage: 2, prompt, words: sentence.split(' '), extra: extra || [], traps: T(traps) }, o),
+    type: (context, q, prompt, model, patterns, traps, explain, o) => Object.assign({ type: 'type', context, stage: 2, q, prompt, model, accept: [model], patterns: pats(patterns), traps: T(traps), explain }, o),
+    transform: (context, source, prompt, model, patterns, traps, explain, o) => Object.assign({ type: 'transform', context, stage: 2, source, prompt, model, accept: [model], patterns: pats(patterns), traps: T(traps), explain }, o),
+    fix: (context, source, model, traps, patterns, o) => Object.assign({ type: 'fix', context, stage: 2, prompt: 'Corrija a frase.', source, model, accept: [model], patterns: pats(patterns), traps: T(traps), explain: 'Resposta: ' + model }, o),
+    dialog: (context, title, ...turns) => ({
+      type: 'dialog', context, stage: 3, title,
+      turns: turns.map(t => t[0] === 'bot' ? { who: 'bot', text: t[1], pt: t[2] } : { who: 'me', options: t[1], why: t[2] || {} }),
+    }),
+    lesson: (id, title, subtitle, vocab, steps) => ({ id, title, subtitle, vocab, steps }),
+    module: (id, title, subtitle, lessons) => ({ id, title, subtitle, lessons }),
+    // Registra um nível e cria uma "estrutura" (unidade do índice de domínio) para cada lição sem uma.
+    level: (id, title, modules) => {
+      for (const m of modules) for (const les of m.lessons) {
+        if (!les.structure) les.structure = les.id;
+        if (!C.structures[les.structure]) C.structures[les.structure] = { name: `${m.title}: ${les.subtitle}`, level: id };
+      }
+      C.levels.push({ id, title, modules });
+    },
+  };
+})();
+
+// Módulo original (lições sp1–sp3): entra no fim do A1, em js/content/a1.js.
+window.CX.simplePast = {
           id: 'simple-past', title: 'Simple Past', subtitle: 'Contar o que aconteceu',
           lessons: [
             // ───────────────────────────── Lição 1
@@ -432,25 +478,4 @@ window.CONTENT = {
               ],
             },
           ],
-        },
-        { title: 'Verb to be', soon: true },
-        { title: 'Pronomes (I, me, my)', soon: true },
-        { title: 'Artigos e plural', soon: true },
-        { title: 'Simple Present', soon: true },
-        { title: 'Present Continuous', soon: true },
-        { title: 'There is / There are', soon: true },
-        { title: 'This, that, these, those', soon: true },
-        { title: 'Preposições de lugar', soon: true },
-        { title: 'Can / Can\'t', soon: true },
-        { title: 'Imperativo', soon: true },
-        { title: 'Perguntas básicas', soon: true },
-        { title: 'Números, datas e horas', soon: true },
-        { title: 'Possessivo \'s', soon: true },
-      ],
-    },
-    { id: 'A2', title: 'Construção de frases', topics: ['Simple Past completo', 'Past Continuous', 'Going to', 'Will', 'Present Perfect (intro)', 'Comparativos e superlativos', 'Contáveis e incontáveis', 'Some / Any / Much / Many', 'Should / Must / Have to', 'Advérbios de frequência', 'Preposições de tempo', 'Infinitivo e gerúndio', 'First Conditional'] },
-    { id: 'B1', title: 'Comunicação intermediária', topics: ['Present Perfect', 'Present Perfect Continuous', 'Past Perfect', 'Used to / Would', 'Second Conditional', 'Passive Voice', 'Reported Speech', 'Relative Clauses', 'Modais de dedução', 'Phrasal verbs', 'Question tags', 'Future Continuous e Future Perfect'] },
-    { id: 'B2', title: 'Fluência estrutural', topics: ['Third e Mixed Conditionals', 'Passiva avançada', 'Reported Speech avançado', 'Causativo (have something done)', 'Modais no passado', 'Inversão', 'Participle clauses', 'Conectores e marcadores de discurso'] },
-    { id: 'C1', title: 'Domínio avançado', topics: ['Inversão avançada', 'Subjuntivo', 'Elipse', 'Cleft sentences', 'Nominalização', 'Nuances dos modais', 'Registro e tom', 'Expressões idiomáticas', 'Inglês falado natural'] },
-  ],
-};
+        };
