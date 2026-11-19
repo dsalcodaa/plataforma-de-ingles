@@ -282,6 +282,19 @@ button { font: inherit; color: inherit; }
 .ach-new { border: 1.5px solid var(--ok); display: grid; }
 .wrong-list li { display: grid; gap: 2px; font-weight: 700; }
 
+/* Quadros-resumo das explicações */
+.gtable { margin: 16px 0; }
+.gtable figcaption { font: 700 1rem var(--font-d); margin-bottom: 8px; }
+.gtable-scroll { overflow-x: auto; border-radius: 12px; border: 1px solid var(--line, #e3ddd3); }
+.gtable table { width: 100%; border-collapse: collapse; font-size: .95rem; background: var(--surface, #fff); }
+.gtable th, .gtable td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line, #e3ddd3); }
+.gtable thead th { background: var(--ink); color: var(--bg); font-weight: 600; font-size: .82rem; line-height: 1.25; }
+.gtable tbody th { font-weight: 600; background: rgba(0,0,0,.03); }
+.gtable tbody tr:last-child > * { border-bottom: 0; }
+.gtable tbody tr:nth-child(even) td { background: rgba(0,0,0,.015); }
+.gtable strong { color: var(--accent); font-weight: 700; }
+.gtable-note { margin: 8px 0 0; padding: 8px 12px; border-radius: 10px; background: rgba(0,0,0,.04); font-size: .92rem; }
+
 /* Trilha por nível e leitura nos exercícios */
 details.level { margin: 14px 0; }
 details.level > summary { list-style: none; cursor: pointer; padding: 6px 0; }

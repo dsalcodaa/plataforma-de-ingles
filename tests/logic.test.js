@@ -3,6 +3,15 @@ const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../js/logic.js');
 
+test('toda lição tem quadro-resumo bem formado', () => {
+  const C = loadContent();
+  for (const l of C.levels.flatMap(lv => lv.modules.flatMap(m => m.lessons))) {
+    const intro = l.steps.find(s => s.type === 'intro');
+    assert.ok(intro && intro.tables && intro.tables.length, `${l.id}: sem tabela`);
+    for (const t of intro.tables) for (const r of t.rows) assert.equal(r.length, t.head.length, `${l.id}: linha com colunas erradas em "${t.title}"`);
+  }
+});
+
 test('normalize expande contrações e remove pontuação', () => {
   assert.strictEqual(L.normalize("I Didn’t go!"), 'i did not go');
   assert.strictEqual(L.normalize('  Did   they go to Rome? '), 'did they go to rome');
@@ -69,7 +78,11 @@ function loadContent() {
   const fs = require('fs'), path = require('path');
   global.window = {};
   const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  for (const [, src] of html.matchAll(/<script src="(js\/content[^"]*)"/g)) require(path.join(__dirname, '..', src));
+  for (const [, src] of html.matchAll(/<script src="(js\/content[^"]*)"/g)) {
+    const f = path.join(__dirname, '..', src);
+    delete require.cache[require.resolve(f)]; // cada chamada recarrega do zero
+    require(f);
+  }
   return global.window.CONTENT;
 }
 

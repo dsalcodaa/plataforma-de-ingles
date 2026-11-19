@@ -428,8 +428,18 @@
       st.patterns.map(p => h('div', { class: 'pattern' },
         p.label ? h('span', { class: 'label' }, p.label) : null,
         h('div', { class: 'pattern-row', lang: 'en' }, p.parts.map(([t, r]) => h('span', { class: 'blk r-' + r }, h('small', { lang: 'pt-BR' }, C.roles[r]), t)), sayBtn(joinParts(p.parts))))),
+      (st.tables || []).map(gTable),
       h('ul', { class: 'tips' }, (st.tips || []).map(t => h('li', {}, t)))),
   });
+
+  // Quadro-resumo da explicação; **texto** vira destaque.
+  const rich = t => String(t).split(/\*\*(.+?)\*\*/).map((x, i) => i % 2 ? h('strong', {}, x) : x);
+  const gTable = t => h('figure', { class: 'gtable' },
+    h('figcaption', {}, t.title),
+    h('div', { class: 'gtable-scroll' }, h('table', {},
+      h('thead', {}, h('tr', {}, t.head.map(c => h('th', { scope: 'col' }, c)))),
+      h('tbody', {}, t.rows.map(r => h('tr', {}, r.map((c, i) => h(i ? 'td' : 'th', i ? {} : { scope: 'row' }, rich(c)))))))),
+    t.note ? h('p', { class: 'gtable-note' }, rich(t.note)) : null);
 
   EX.demo = st => ({
     node: h('section', { class: 'ex' },
